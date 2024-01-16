@@ -181,28 +181,26 @@ elif selected2 == "Train":
         'Select Feature Extraction Method',
         ('BOW', 'TF-IDF (1n-gram)', 'TF-IDF (2n-gram)', "Word2Vec", "BioWord2Vec"))
     st.write("3 - Algorithm")
-    option2 = st.selectbox(
-        'Select The Dataset Balancing Method',
-        ('None', 'SMOTE', 'ADASYN', "Undersample", "Cut Target Classes"))
+
+    option2 = st.multiselect(
+        'Select The Dataset Balancing Method(s)',
+        ['None', 'SMOTE', "Undersample", "Cut Target Classes"],
+        ["Undersample"])
     st.write("4 - Algorithm")
     option3 = st.selectbox(
         'Select Feature Extraction Method',
         ('BOW', 'TF-IDF', 'Mobile phone'))
     if st.button("Train ⚙️🤖", type="primary"):
 
-        if option2 == "None":
+        if "None" in option2:
             st.write("No balancing was applied")
-        elif option2 == "SMOTE":
-            smote = SMOTE()
-            data['transcription'], data['medical_specialty'] = smote.fit_resample(data[['transcription']],
-                                                                                  data['medical_specialty'])
-            st.write("SMOTE balancing applied")
-        elif option2 == "Undersample":
+
+        elif "Undersample" in option2:
             # Find the number of samples in the smallest class
             min_count = data['medical_specialty'].value_counts().min()
             data = data.groupby('medical_specialty').apply(lambda x: x.sample(min_count)).reset_index(drop=True)
             st.write("Undersampling applied")
-        elif option2 == "Cut Target Classes":
+        elif "Cut Target Classes" in option2:
             # Find the count of the majority class
             max_count = data['medical_specialty'].value_counts().max()
             # Define threshold as 20% of the majority class count
@@ -213,7 +211,13 @@ elif selected2 == "Train":
             data = data[data['medical_specialty'].isin(valid_classes)]
             st.write("Cut Target Classes applied")
 
-
+        fig, ax = plt.subplots(figsize=(10, 6))
+        specialty_counts = data['medical_specialty'].value_counts()
+        sns.barplot(x=specialty_counts.values, y=specialty_counts.index, ax=ax)
+        ax.set_title('Medical Specialty Distribution')
+        ax.set_ylabel('Specialty')
+        ax.set_xlabel('Count')
+        st.pyplot(fig)
 
         # Text preparation
 
@@ -245,17 +249,6 @@ elif selected2 == "Train":
             stop_words = set(stopwords.words('english'))
             df['transcription'] = df['transcription'].apply(lambda x: [word for word in x if word not in stop_words])
 
-            # Step 6: Encode 'medical_speciality' Column
-            # One-hot encoding 'medical_speciality' column
-            one_hot_encoder = OneHotEncoder(sparse=False)
-            medical_specialty_encoded = one_hot_encoder.fit_transform(df[['medical_specialty']])
-
-            # Convert the encoded result into a DataFrame
-            encoded_df = pd.DataFrame(medical_specialty_encoded,
-                                      columns=one_hot_encoder.get_feature_names_out(['medical_specialty']))
-
-            # Concatenate the original DataFrame with the new one-hot encoded columns
-            df = pd.concat([df, encoded_df], axis=1)
 
             # Optionally, you can drop the original 'medical_speciality' column
             # df.drop('medical_specialty', axis=1, inplace=True)
@@ -299,13 +292,13 @@ elif selected2 == "Train":
         def extract_features_bow(df, ngram_range=(1, 1)):
             vectorizer = CountVectorizer(ngram_range=ngram_range)
             features = vectorizer.fit_transform(df['transcription'].astype(str))
-            return features, vectorizer.get_feature_names_out()
+            return features.toarray(), vectorizer.get_feature_names_out()
 
         from sklearn.feature_extraction.text import TfidfVectorizer
         def extract_features_tfidf(df, ngram_range=(1, 1)):
             vectorizer = TfidfVectorizer(ngram_range=ngram_range)
             features = vectorizer.fit_transform(df['transcription'].astype(str))
-            return features, vectorizer.get_feature_names_out()
+            return features.toarray(), vectorizer.get_feature_names_out()
 
         def extract_features_w2v(df):
             # Word2Vec expects a list of lists of tokens
@@ -364,7 +357,6 @@ elif selected2 == "Train":
         elif option == "Word2Vec":
             with st.spinner('Pre-Processing and Applying Word2Vec...'):
                 df_temp = basic_preprocessing(df_temp)
-                st.dataframe(df_temp)
                 features, w2v_model = extract_features_w2v(df_temp)
         elif option == "BioWord2Vec":
             with st.spinner('Pre-Processing and Applying BioWord2Vec...'):
@@ -374,6 +366,43 @@ elif selected2 == "Train":
 
         print("HEÇLO")
         print(features)
+
+        # Assuming df is your dataframe and 'medical_specialty' is the target variable
+
+        X, y = features, df_temp['medical_specialty']  # Replace 'features' with your features array
+
+        # Conditionally apply SMOTE
+        if "SMOTE" in option2:
+            smote = SMOTE()
+            X_resampled, y_resampled = smote.fit_resample(X, y)
+            st.write("Distribution of target classes after applying SMOTE:")
+            fig, ax = plt.subplots(figsize=(10, 6))
+            specialty_counts = y_resampled.value_counts()
+            sns.barplot(x=specialty_counts.values, y=specialty_counts.index, ax=ax)
+            ax.set_title('Medical Specialty Distribution')
+            ax.set_ylabel('Specialty')
+            ax.set_xlabel('Count')
+            st.pyplot(fig)
+        else:
+            X_resampled, y_resampled = X, y
+
+        from sklearn.preprocessing import LabelEncoder
+
+        # Convert the resampled data back to a pandas dataframe
+        df_resampled = pd.DataFrame(X_resampled, columns=[f'feature_{i}' for i in range(X_resampled.shape[1])])
+        df_resampled['medical_specialty'] = y_resampled
+
+        # Label Encoding for the target variable 'medical_specialty'
+        label_encoder = LabelEncoder()
+        df_resampled['medical_specialty'] = label_encoder.fit_transform(df_resampled['medical_specialty'])
+
+        # Splitting the dataset into the Training set and Test set
+        X = df_resampled.drop('medical_specialty', axis=1)
+        y = df_resampled['medical_specialty']
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+
+
 
 elif selected2 == "About":
     st.write("Project created for Faculdade de Engenharia do Porto (FEUP)"
